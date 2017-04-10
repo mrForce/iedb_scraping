@@ -89,7 +89,6 @@ Pass in the parsed lines of the CSV file. It will return a list of tuples of the
 
 """
 def parse_data(parsed_lines):
-    print("I am about to extract the data from the CSV file. However, I will need you to confirm a few things with me along the way")
     i = 0
     fields_index = -1
     while i < 3:
@@ -118,6 +117,7 @@ def parse_data(parsed_lines):
             object_type = entry['Object Type']
             assay_id = entry['MHC ligand ID']
             method = entry['Method/Technique']
+            assay_group = entry['Assay Group']
             no_position = False
             try:
                 starting_position = int(entry['Starting Position'])
@@ -135,7 +135,7 @@ def parse_data(parsed_lines):
             else:
                 if object_type == 'Linear peptide' and all([aa in IUPAC.protein.letters for aa in peptide]) and position_criteria:
                     print('added to data')
-                    data.append((peptide, kd, assay_id, method))
+                    data.append((peptide, kd, assay_id, method, assay_group))
 
         line_number += 1
     return data
