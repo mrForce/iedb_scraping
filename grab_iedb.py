@@ -26,6 +26,18 @@ def get_id(hla_url, assay_url):
     print(r.request.headers)
     request_id = r.json()['id']
     return request_id
+"""
+Here, we want to grab the T cell results for a certain HLA
+"""
+def get_id_t_cell(hla_url):
+    params=  {"structure_type":"linear_sequence","e_value":"exact","assay_t_cell_all":1,"assay_t_cell_ids[]":["http://purl.obolibrary.org/obo/OBI_0002059","http://purl.obolibrary.org/obo/OBI_0002055","http://purl.obolibrary.org/obo/OBI_1110124"],"assay_b_cell_all":0,"assay_mhc_all":0,"mhc_class_type":"any_mhc","mhc_class_ids[]":[hla_url],"host_organism_type":"any_host","disease_type":"any_disease","reference_type":"anyreference","count":"","page_num":"","sort_col":"","sort_dir":"","items_per_page":"","start_char":"","sort_col_type":"","search_type":"simple_search","list_type":"tcell"}
+    r = requests.post('http://www.iedb.org/WorkRequestHandler.php', data={'worker_type':2, 'params':json.dumps(params)})
+    print('URL:')
+    print(r.url)
+    print('headers')
+    print(r.request.headers)
+    request_id = r.json()['id']
+    return request_id
 
 
 class IEDBRequestError(Exception):
@@ -87,15 +99,17 @@ Then, for each line past the fields line, we make sure that the Description fiel
 
 Pass in the parsed lines of the CSV file. It will return a list of tuples of the form [(peptide, Kd)...]
 
+
+
 """
-def parse_data(parsed_lines):
+def parse_data(parsed_lines, keys = ['Description', 'Object Type', 'MHC ligand ID', 'Method/Technique', 'Assay Group'], quantitative = True):
     i = 0
     fields_index = -1
     while i < 3:
         line = parsed_lines[i]
         print('line')
         print(line)
-        if 'Object Type' in line and 'Description' in line and 'Starting Position' in line and 'Ending Position' in line and 'Quantitative measurement' in line:
+        if 'Object Type' in line and 'Description' in line and 'Starting Position' in line and 'Ending Position' in line:
             fields_index = i
             break
         i += 1
@@ -113,12 +127,9 @@ def parse_data(parsed_lines):
     for x in parsed_lines[(fields_index + 1)::]:
         entry = dict(zip(parsed_lines[fields_index], x))
         if 'Description' in entry and 'Starting Position' in entry and 'Ending Position' in entry and 'Object Type' in entry:
+            no_position = False
             peptide = entry['Description']
             object_type = entry['Object Type']
-            assay_id = entry['MHC ligand ID']
-            method = entry['Method/Technique']
-            assay_group = entry['Assay Group']
-            no_position = False
             try:
                 starting_position = int(entry['Starting Position'])
             except ValueError:
@@ -128,14 +139,19 @@ def parse_data(parsed_lines):
             except ValueError:
                 no_position = True
             position_criteria = no_position or ending_position - starting_position + 1 == len(peptide)
-            try:
-                kd = float(entry['Quantitative measurement'])
-            except ValueError:
-                print('could not convert quantitive measurement: {0}'.format(entry['Quantitative measurement']))
+            if quantitative:
+                try:
+                    kd = float(entry['Quantitative measurement'])
+                except ValueError:
+                    print('could not convert quantitive measurement: {0}'.format(entry['Quantitative measurement']))
+                else:
+                    if object_type == 'Linear peptide' and all([aa in IUPAC.protein.letters for aa in peptide]) and position_criteria:
+                        print('added to data')
+                        data.append([entry[x] for x in keys] + [kd])
+
             else:
                 if object_type == 'Linear peptide' and all([aa in IUPAC.protein.letters for aa in peptide]) and position_criteria:
-                    print('added to data')
-                    data.append((peptide, kd, assay_id, method, assay_group))
+                    data.append([entry[x] for x in keys] + [entry['Qualitative Measure']])
 
         line_number += 1
     return data
@@ -147,8 +163,11 @@ This returns a list of tuples of the from [(sequence, measurement)..]
 
 Pass in the HLA and assay URL's
 """
-def get_measurements(hla_url, assay_url):
-    request_id  = get_id(hla_url, assay_url)
+def get_measurements(hla_url, assay_url = False, t_cells = False):
+    if t_cells:
+        request_id = get_id_t_cell(hla_url)
+    else:
+        request_id  = get_id(hla_url, assay_url)
     request_status = IEDBRequestStatus(request_id)
     keepGoing = True
     while keepGoing:
@@ -164,14 +183,31 @@ def get_measurements(hla_url, assay_url):
     csv_request = requests.get(download_url)
     csv_text = csv_request.text
     lines = list(csv.reader(csv_text.split('\n')))
-    return parse_data(lines)
+    if t_cells:
+        return parse_data(lines, keys=['Description', 'Object Type', 'MHC Allele ID', 'Method/Technique', 'Assay Group'], quantitative = False)
+    else:    
+        return parse_data(lines, quantitative = True)
 
-parser = argparse.ArgumentParser(description='Get measurement data for assays and HLA alleles. This creates a directory for each HLA, and a file in each directory for each assay')
+parser = argparse.ArgumentParser(description='Get measurement data for assays and HLA alleles. This creates a directory for each HLA, and a file in each directory for each assay. You can also choose to pull t-cell results.')
 parser.add_argument('hla_pickle', help='Point us to a pickle that contains the HLA information, in the form: [(name, url)...], where name is the HLA name (such as HLA-A*01:01), and url is the OBI url')
-parser.add_argument('assays_pickle', help='Point us to a pickle that contains the assay infomation, in the form: [(assay_name, url)...], where url is the OBI url')
+parser.add_argument('experiment_type', help='Enter \'ligand\' if we are pulling information about MHC-Ligand binding. Enter \'tcell\' if we are pulling information about mhc-peptide activition of T-Cells')
+parser.add_argument('output_location', help='Enter a path to put the HLA results, and the file_locations.pickle file')
+parser.add_argument('--assays_pickle', help='Point us to a pickle that contains the assay infomation, in the form: [(assay_name, url)...], where url is the OBI url. Necessary if experiment_type is \'ligand\'', default=False)
+
 args = parser.parse_args()
 hla_pickle = args.hla_pickle
 assays_pickle = args.assays_pickle
+experiment_type = args.experiment_type
+output_location = args.output_location
+if experiment_type == 'ligand' and assays_pickle == False:
+    print('You need to specify an assays pickle to work with MHC-ligand binding')
+    sys.exit()
+elif experiment_type != 'tcell':
+    print('You need to specify a valid experiment_type')
+    sys.exit()
+    
+
+#sys.exit()
 hla_list = False
 if os.path.exists(hla_pickle):
     with open(hla_pickle, 'rb') as f:
@@ -180,13 +216,14 @@ else:
     print('The hla_pickle file doesn\'t exist')
     sys.exit()
 
-assay_list = False
-if os.path.exists(assays_pickle):
-    with open(assays_pickle, 'rb') as f:
-        assay_list = pickle.load(f)
-else:
-    print('The assay_pickle file doesn\'t exist')
-    sys.exit()
+assays_list = False
+if assays_pickle != False:
+    if os.path.exists(assays_pickle):
+        with open(assays_pickle, 'rb') as f:
+            assay_list = pickle.load(f)
+    else:
+        print('The assay_pickle file doesn\'t exist')
+        sys.exit()
 
 """
 
@@ -197,19 +234,30 @@ csv_exceptions = list()
 
 for hla_name, hla_url in hla_list:
     file_locations[hla_name] = dict()
-    os.mkdir(hla_name)
-    for assay_name, assay_url in assay_list:
+    os.mkdir(os.path.join(output_location, hla_name))
+    if assays_list != False:
+        for assay_name, assay_url in assay_list:
+            try:
+                measurements = get_measurements(hla_url, assay_url=assay_url)
+                file_location = os.path.join(hla_name, assay_name + '.pickle')
+                with open(os.path.join(output_location, file_location), 'wb') as f:
+                    pickle.dump(measurements, f)
+                file_locations[hla_name][assay_name] = file_location
+            except CSVParseError as e:
+                message = e.message
+                print('THERE WAS A CSV PARSING ERROR')
+                csv_exceptions.append({'hla_name': hla_name, 'hla_url':hla_url, 'assay_name':assay_name, 'assay_url':assay_url, 'message': message})
+    else:
         try:
-            measurements = get_measurements(hla_url, assay_url)
-            file_location = os.path.join(hla_name, assay_name + '.pickle')
-            with open(file_location, 'wb') as f:
+            measurements = get_measurements(hla_url, t_cells = True)
+            file_location = os.path.join(hla_name, 'tcells.pickle')
+            with open(os.path.join(output_location, file_location), 'wb') as f:
                 pickle.dump(measurements, f)
-            file_locations[hla_name][assay_name] = file_location
+                file_locations[hla_name]['tcells'] = file_location
         except CSVParseError as e:
             message = e.message
             print('THERE WAS A CSV PARSING ERROR')
-            csv_exceptions.append({'hla_name': hla_name, 'hla_url':hla_url, 'assay_name':assay_name, 'assay_url':assay_url, 'message': message})
+            csv_exceptions.append({'hla_name':hla_name, 'hla_url':hla_url, 'message': message})
 
-
-with open('file_locations.pickle', 'wb') as f:
+with open(os.path.join(output_location, 'file_locations.pickle'), 'wb') as f:
     pickle.dump(file_locations, f)
