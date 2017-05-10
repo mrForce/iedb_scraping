@@ -30,7 +30,7 @@ def get_id(hla_url, assay_url):
 Here, we want to grab the T cell results for a certain HLA
 """
 def get_id_t_cell(hla_url):
-    params=  {"structure_type":"linear_sequence","e_value":"exact","assay_t_cell_all":1,"assay_t_cell_ids[]":["http://purl.obolibrary.org/obo/OBI_0002059","http://purl.obolibrary.org/obo/OBI_0002055","http://purl.obolibrary.org/obo/OBI_1110124"],"assay_b_cell_all":0,"assay_mhc_all":0,"mhc_class_type":"any_mhc","mhc_class_ids[]":[hla_url],"host_organism_type":"any_host","disease_type":"any_disease","reference_type":"anyreference","count":"","page_num":"","sort_col":"","sort_dir":"","items_per_page":"","start_char":"","sort_col_type":"","search_type":"simple_search","list_type":"tcell"}
+    params=  {"structure_type":"linear_sequence","e_value":"exact","assay_t_cell_all":1,"assay_t_cell_ids[]":["http://purl.obolibrary.org/obo/OBI_0002055"],"assay_b_cell_all":0,"assay_mhc_all":0,"mhc_class_type":"any_mhc","mhc_class_ids[]":[hla_url],"host_organism_type":"any_host","disease_type":"any_disease","reference_type":"anyreference","count":"","page_num":"","sort_col":"","sort_dir":"","items_per_page":"","start_char":"","sort_col_type":"","search_type":"simple_search","list_type":"tcell"}
     r = requests.post('http://www.iedb.org/WorkRequestHandler.php', data={'worker_type':2, 'params':json.dumps(params)})
     print('URL:')
     print(r.url)
@@ -189,7 +189,7 @@ def get_measurements(hla_url, assay_url = False, t_cells = False):
         return parse_data(lines, quantitative = True)
 
 parser = argparse.ArgumentParser(description='Get measurement data for assays and HLA alleles. This creates a directory for each HLA, and a file in each directory for each assay. You can also choose to pull t-cell results.')
-parser.add_argument('hla_pickle', help='Point us to a pickle that contains the HLA information, in the form: [(name, url)...], where name is the HLA name (such as HLA-A*01:01), and url is the OBI url')
+parser.add_argument('hla_pickle', help='Point us to a pickle that contains the HLA information, in the form: [(name, url, threshold_type)...], where name is the HLA name (such as HLA-A*01:01), and url is the OBI url. We expect the third argument (threshold_type), but this script won\'t use that information')
 parser.add_argument('experiment_type', help='Enter \'ligand\' if we are pulling information about MHC-Ligand binding. Enter \'tcell\' if we are pulling information about mhc-peptide activition of T-Cells')
 parser.add_argument('output_location', help='Enter a path to put the HLA results, and the file_locations.pickle file')
 parser.add_argument('--assays_pickle', help='Point us to a pickle that contains the assay infomation, in the form: [(assay_name, url)...], where url is the OBI url. Necessary if experiment_type is \'ligand\'', default=False)
@@ -198,13 +198,17 @@ args = parser.parse_args()
 hla_pickle = args.hla_pickle
 assays_pickle = args.assays_pickle
 experiment_type = args.experiment_type
+print('experiment_type')
+print(experiment_type)
+print(experiment_type == 'ligand')
 output_location = args.output_location
+if experiment_type != 'ligand' and experiment_type != 'tcell':
+    print('You need to specify a valid experiment type')
+    sys.exit()
 if experiment_type == 'ligand' and assays_pickle == False:
     print('You need to specify an assays pickle to work with MHC-ligand binding')
     sys.exit()
-elif experiment_type != 'tcell':
-    print('You need to specify a valid experiment_type')
-    sys.exit()
+
     
 
 #sys.exit()
@@ -220,7 +224,7 @@ assays_list = False
 if assays_pickle != False:
     if os.path.exists(assays_pickle):
         with open(assays_pickle, 'rb') as f:
-            assay_list = pickle.load(f)
+            assays_list = pickle.load(f)
     else:
         print('The assay_pickle file doesn\'t exist')
         sys.exit()
@@ -236,7 +240,9 @@ for hla_name, hla_url in hla_list:
     file_locations[hla_name] = dict()
     os.mkdir(os.path.join(output_location, hla_name))
     if assays_list != False:
-        for assay_name, assay_url in assay_list:
+        #The threshold_type tells us if the threshold should be a ceiling (if True, like with IC50), or a floor (like with half life)
+        #We don't actually need threshold_type for anything in this script
+        for assay_name, assay_url, threshold_type in assays_list:
             try:
                 measurements = get_measurements(hla_url, assay_url=assay_url)
                 file_location = os.path.join(hla_name, assay_name + '.pickle')
