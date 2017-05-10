@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import time
-from TrainingSystems.smm import SMMTrainInput, TrainingDataType, SequenceDataType, DataPointType, SMMTrainOutput, SMMPredictor, SMMPredictInput, SMMPredictOutput, PredictType, parse, Greater, ThresholdType, Lesser
+from smm import SMMTrainInput, TrainingDataType, SequenceDataType, DataPointType, SMMTrainOutput, SMMPredictor, SMMPredictInput, SMMPredictOutput, PredictType, parse, Greater, ThresholdType, Lesser
 import tempfile
 from scipy.stats import spearmanr
 import subprocess
